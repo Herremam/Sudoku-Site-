@@ -3,6 +3,8 @@
 import { getCandidates, getHint, applyHint, solveFull } from './solver.js';
 import { generatePuzzle, SAMPLE_PUZZLES } from './generator.js';
 
+export const MAX_HINTS = 3;
+
 export class SudokuGame {
   constructor(onUpdate) {
     this.onUpdate = onUpdate;
@@ -25,9 +27,12 @@ export class SudokuGame {
     this.highlightNum = null;
   }
 
+  get hintsRemaining() { return Math.max(0, MAX_HINTS - this.hintsUsed); }
+
   newGame(difficulty='medium', useSample=false) {
     this.stopTimer();
     this.completed = false;
+    this.gameover = false;
     this.mistakes = 0;
     this.hintsUsed = 0;
     this.elapsed = 0;
@@ -59,6 +64,7 @@ export class SudokuGame {
   loadPuzzle(puzzle, solution, difficulty) {
     this.stopTimer();
     this.completed = false;
+    this.gameover = false;
     this.mistakes = 0;
     this.hintsUsed = 0;
     this.elapsed = 0;
@@ -105,10 +111,17 @@ export class SudokuGame {
       return;
     }
 
-    // Check correctness
+    // Check correctness — hard limit of 3 mistakes
     if (this.solution && this.solution[r][c] !== n) {
+      if (this.mistakes >= 3) return; // already at limit, block input
       this.mistakes++;
-      this.board[r][c] = n; // still place it, mark as error
+      this.board[r][c] = n; // place it, mark as error
+      if (this.mistakes >= 3) {
+        this.stopTimer();
+        this.gameover = true;
+        this.update();
+        return;
+      }
     } else {
       this.board[r][c] = n;
       this.notes[r][c] = new Set();
@@ -166,6 +179,7 @@ export class SudokuGame {
 
   hint() {
     if (this.completed) return;
+    if (this.hintsUsed >= MAX_HINTS) return { type: 'No Hints Left', explanation: 'You have used all 3 hints for this game.' };
     this.hintsUsed++;
     const hint = getHint(this.board);
     if (!hint) {
@@ -194,15 +208,6 @@ export class SudokuGame {
     this.checkCompletion();
     this.update();
     return hint;
-  }
-
-  autoNote() {
-    this._pushHistory();
-    for (let r=0;r<9;r++) for (let c=0;c<9;c++) {
-      if (this.board[r][c]!==0) continue;
-      this.notes[r][c] = new Set(getCandidates(this.board,r,c));
-    }
-    this.update();
   }
 
   erase() {
@@ -302,7 +307,8 @@ export class SudokuGame {
       this.difficulty=d.difficulty;
       this.elapsed=d.elapsed;
       this.completed=d.completed;
-      if (!this.completed) this.startTimer();
+      this.gameover = d.gameover || false;
+      if (!this.completed && !this.gameover) this.startTimer();
       this.update();
       return true;
     } catch { return false; }
