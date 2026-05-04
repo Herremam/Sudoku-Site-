@@ -1,43 +1,59 @@
 // main.js — UI controller
 
-import { SudokuGame } from './game.js';
+import { SudokuGame, MAX_HINTS } from './game.js';
+import { getHint as _getHint, solveFull, getCandidates } from './solver.js';
 
 // ── State ─────────────────────────────────────────────────────────────────────
 let game = null;
 let pendingHint = null;
-let generating = false;
+
+// Solver state
+let solverSelected = null;
+let solverInputBoard = Array.from({length:9}, () => Array(9).fill(0));
+let solverSteps = [];
+let solverCurrentStep = -1;
+let solverAutoTimer = null;
 
 // ── DOM refs ──────────────────────────────────────────────────────────────────
-const boardEl       = document.getElementById('sudoku-board');
-const menuOverlay   = document.getElementById('menu-overlay');
-const completeOverlay= document.getElementById('complete-overlay');
-const hintOverlay   = document.getElementById('hint-overlay');
-const pauseOverlay  = document.getElementById('pause-overlay');
-const timerDisplay  = document.getElementById('timer-display');
-const diffBadge     = document.getElementById('diff-badge');
-const mistakesEl    = document.getElementById('mistakes');
-const cTime         = document.getElementById('c-time');
-const cMistakes     = document.getElementById('c-mistakes');
-const cHints        = document.getElementById('c-hints');
-const cDiff         = document.getElementById('c-diff');
-const hintType      = document.getElementById('hint-type');
-const hintExpl      = document.getElementById('hint-explanation');
-const continueBtn   = document.getElementById('continue-btn');
-const btnNotes      = document.getElementById('btn-notes');
-const btnUndo       = document.getElementById('btn-undo');
-const btnErase      = document.getElementById('btn-erase');
-const btnHint       = document.getElementById('btn-hint');
-const btnAutonote   = document.getElementById('btn-autonote');
+const boardEl         = document.getElementById('sudoku-board');
+const menuOverlay     = document.getElementById('menu-overlay');
+const completeOverlay = document.getElementById('complete-overlay');
+const gameoverOverlay = document.getElementById('gameover-overlay');
+const hintOverlay     = document.getElementById('hint-overlay');
+const pauseOverlay    = document.getElementById('pause-overlay');
+const timerDisplay    = document.getElementById('timer-display');
+const diffBadge       = document.getElementById('diff-badge');
+const mistakesEl      = document.getElementById('mistakes');
+const cTime           = document.getElementById('c-time');
+const cMistakes       = document.getElementById('c-mistakes');
+const cHints          = document.getElementById('c-hints');
+const cDiff           = document.getElementById('c-diff');
+const hintType        = document.getElementById('hint-type');
+const hintExpl        = document.getElementById('hint-explanation');
+const hintRemainingNote = document.getElementById('hint-remaining-note');
+const continueBtn     = document.getElementById('continue-btn');
+const btnNotes        = document.getElementById('btn-notes');
+const btnUndo         = document.getElementById('btn-undo');
+const btnErase        = document.getElementById('btn-erase');
+const btnHint         = document.getElementById('btn-hint');
+const hintCountBadge  = document.getElementById('hint-count-badge');
+
+const appEl           = document.getElementById('app');
+const solverPageEl    = document.getElementById('solver-page');
+const solverInputPanel= document.getElementById('solver-input-panel');
+const solverStepsPanel= document.getElementById('solver-steps-panel');
+const solverBoardEl   = document.getElementById('solver-board');
+const solverStepsBoardEl = document.getElementById('solver-steps-board');
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 function init() {
   game = new SudokuGame(onGameUpdate);
 
-  // Check for saved game
   const saved = localStorage.getItem('sudoku-save');
   if (saved) continueBtn.style.display = 'block';
 
   bindEvents();
+  buildSolverInputBoard();
   showOverlay(menuOverlay);
 }
 
@@ -52,9 +68,17 @@ function onGameUpdate(type) {
   timerDisplay.textContent = game.formatTime();
   diffBadge.textContent = capitalise(game.difficulty);
   diffBadge.className = `diff-badge ${game.difficulty}`;
-  mistakesEl.textContent = game.mistakes;
+  mistakesEl.textContent = `${game.mistakes}/3`;
   btnNotes.classList.toggle('active', game.notesMode);
 
+  // Update hint badge
+  const remaining = game.hintsRemaining;
+  hintCountBadge.textContent = remaining;
+  hintCountBadge.className = `hint-count-badge${remaining === 0 ? ' depleted' : ''}`;
+  btnHint.disabled = remaining === 0;
+  btnHint.title = remaining > 0 ? `Hint (${remaining} left)` : 'No hints remaining';
+
+  if (game.gameover) showGameOver();
   if (game.completed) showCompletion();
 }
 
@@ -72,14 +96,15 @@ function renderBoard() {
       const isError = game.isError(r, c);
       const notes = game.notes[r][c];
 
-      // Classes
       cell.className = 'cell';
-      if (highlight !== 'none') cell.classList.add(highlight === 'selected' ? 'selected' : highlight === 'same-number' ? 'same-number' : 'peer');
+      if (highlight !== 'none') cell.classList.add(
+        highlight === 'selected' ? 'selected' :
+        highlight === 'same-number' ? 'same-number' : 'peer'
+      );
       if (isInitial) cell.classList.add('initial');
       else if (isError) cell.classList.add('error');
       else if (val !== 0) cell.classList.add('player');
 
-      // Content
       if (val !== 0) {
         cell.textContent = val;
       } else if (notes.size > 0) {
@@ -129,13 +154,14 @@ function renderNumCounts() {
 
 // ── Cell interaction ──────────────────────────────────────────────────────────
 function onCellClick(r, c) {
-  if (!game || game.paused || game.completed) return;
+  if (!game || game.paused || game.completed || game.gameover) return;
   game.select(r, c);
 }
 
 // ── Keyboard ──────────────────────────────────────────────────────────────────
 document.addEventListener('keydown', e => {
-  if (!game || game.paused || game.completed) return;
+  if (!game || game.paused || game.completed || game.gameover) return;
+  if (solverPageEl && !solverPageEl.classList.contains('hidden')) return;
 
   if (e.key >= '1' && e.key <= '9') { game.input(parseInt(e.key)); return; }
   if (e.key === '0' || e.key === 'Delete' || e.key === 'Backspace') { game.erase(); return; }
@@ -143,7 +169,6 @@ document.addEventListener('keydown', e => {
   if ((e.ctrlKey || e.metaKey) && e.key === 'z') { e.preventDefault(); game.undo(); return; }
   if ((e.ctrlKey || e.metaKey) && e.key === 'y') { e.preventDefault(); game.redo(); return; }
 
-  // Arrow navigation
   if (!game.selected) return;
   const {r,c} = game.selected;
   const moves = { ArrowUp:[-1,0], ArrowDown:[1,0], ArrowLeft:[0,-1], ArrowRight:[0,1] };
@@ -156,26 +181,20 @@ document.addEventListener('keydown', e => {
 
 // ── Events ────────────────────────────────────────────────────────────────────
 function bindEvents() {
-  // Difficulty buttons
   document.querySelectorAll('.diff-btn').forEach(btn => {
     btn.addEventListener('click', () => startGame(btn.dataset.diff));
   });
 
-  // Continue
   continueBtn.addEventListener('click', () => {
     const saved = localStorage.getItem('sudoku-save');
-    if (saved && game.load(saved)) {
-      hideOverlay(menuOverlay);
-    }
+    if (saved && game.load(saved)) hideOverlay(menuOverlay);
   });
 
-  // Menu btn
   document.getElementById('menu-btn').addEventListener('click', () => {
     if (game.board) saveGame();
     showOverlay(menuOverlay);
   });
 
-  // Pause
   document.getElementById('pause-btn').addEventListener('click', () => {
     game.togglePause();
     if (game.paused) showOverlay(pauseOverlay);
@@ -185,14 +204,17 @@ function bindEvents() {
     hideOverlay(pauseOverlay);
   });
 
-  // Toolbar
   btnUndo.addEventListener('click', () => game.undo());
   btnErase.addEventListener('click', () => game.erase());
   btnNotes.addEventListener('click', () => { game.notesMode = !game.notesMode; game.update(); });
-  btnAutonote.addEventListener('click', () => game.autoNote());
   btnHint.addEventListener('click', showHint);
 
-  // Numpad
+  document.getElementById('btn-solver').addEventListener('click', openSolverPage);
+  document.getElementById('solver-menu-btn').addEventListener('click', () => {
+    hideOverlay(menuOverlay);
+    openSolverPage();
+  });
+
   document.querySelectorAll('.num-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       if (!game.selected) return;
@@ -204,20 +226,36 @@ function bindEvents() {
   // Hint overlay
   document.getElementById('hint-close').addEventListener('click', () => {
     hideOverlay(hintOverlay);
+    clearHintHighlights();
     pendingHint = null;
   });
   document.getElementById('hint-apply').addEventListener('click', () => {
-    if (pendingHint) {
+    if (pendingHint && pendingHint.value !== undefined) {
       game._pushHistory();
       applyHintToGame(pendingHint);
       game.checkCompletion();
+      game.update();
+      pendingHint = null;
+    } else if (pendingHint && pendingHint.eliminations) {
+      game._pushHistory();
+      applyHintToGame(pendingHint);
       game.update();
       pendingHint = null;
     }
     hideOverlay(hintOverlay);
   });
 
-  // Completion overlay
+  // Gameover
+  document.getElementById('gameover-new-btn').addEventListener('click', () => {
+    hideOverlay(gameoverOverlay);
+    startGame(game.difficulty);
+  });
+  document.getElementById('gameover-menu-btn').addEventListener('click', () => {
+    hideOverlay(gameoverOverlay);
+    showOverlay(menuOverlay);
+  });
+
+  // Completion
   document.getElementById('new-same-btn').addEventListener('click', () => {
     hideOverlay(completeOverlay);
     startGame(game.difficulty);
@@ -226,45 +264,92 @@ function bindEvents() {
     hideOverlay(completeOverlay);
     showOverlay(menuOverlay);
   });
+
+  // Solver page events
+  document.getElementById('solver-back-btn').addEventListener('click', closeSolverPage);
+  document.getElementById('solver-load-current').addEventListener('click', loadCurrentGameIntoSolver);
+  document.getElementById('solver-clear').addEventListener('click', clearSolverBoard);
+  document.getElementById('solver-start').addEventListener('click', startSolving);
+  document.getElementById('solver-next-step').addEventListener('click', () => stepSolver(1));
+  document.getElementById('solver-prev-step').addEventListener('click', () => stepSolver(-1));
+  document.getElementById('solver-auto-play').addEventListener('click', toggleAutoPlay);
+  document.getElementById('solver-reset-steps').addEventListener('click', resetSolverToInput);
+
+  document.querySelectorAll('.solver-num-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      if (solverSelected === null) return;
+      const n = parseInt(btn.dataset.n);
+      const {r, c} = solverSelected;
+      solverInputBoard[r][c] = n;
+      renderSolverInputBoard();
+    });
+  });
 }
 
 // ── Start game ────────────────────────────────────────────────────────────────
 async function startGame(difficulty) {
   hideOverlay(menuOverlay);
   showGenerating(true);
-
-  // Use sample first for instant load, then generate in bg
   game.newGame(difficulty, true);
   buildCells();
   renderBoard();
   renderNumCounts();
+  onGameUpdate('state');
   showGenerating(false);
 }
 
 // ── Hint logic ────────────────────────────────────────────────────────────────
 function showHint() {
   if (game.completed || game.paused) return;
-  const hint = getHintPreview();
-  if (!hint) {
-    // Reveal a cell directly
-    const h = game.hint();
-    if (h) animatePop(h.cell?.r, h.cell?.c);
-    return;
-  }
-  pendingHint = hint;
-  hintType.textContent = hint.type;
-  hintExpl.textContent = hint.explanation || '';
+  if (game.hintsRemaining === 0) return;
 
-  // Highlight cells on board
+  const hint = _getHint(game.board);
+  if (!hint) {
+    // Fall back: reveal a random cell
+    const empties = [];
+    for (let r=0;r<9;r++) for (let c=0;c<9;c++) if (game.board[r][c]===0) empties.push([r,c]);
+    if (!empties.length) return;
+    const [r,c] = empties[Math.floor(Math.random()*empties.length)];
+    pendingHint = {
+      type: 'Cell Reveal',
+      cell: {r, c},
+      value: game.solution[r][c],
+      explanation: buildRevealExplanation(r, c, game.solution[r][c], game.board)
+    };
+  } else {
+    pendingHint = hint;
+    pendingHint.explanation = buildRichExplanation(hint, game.board);
+  }
+
+  // Count the hint now (before showing overlay) so badge updates immediately
+  game.hintsUsed++;
+  game.update();
+
+  hintType.textContent = pendingHint.type;
+  hintExpl.textContent = pendingHint.explanation || '';
+
+  const remaining = game.hintsRemaining;
+  if (remaining === 0) {
+    hintRemainingNote.textContent = '⚠️ This was your last hint.';
+    hintRemainingNote.className = 'hint-remaining-note depleted';
+  } else {
+    hintRemainingNote.textContent = `${remaining} hint${remaining===1?'':'s'} remaining this game.`;
+    hintRemainingNote.className = 'hint-remaining-note';
+  }
+
   clearHintHighlights();
-  if (hint.cells) {
-    hint.cells.forEach(({r,c}) => {
+  if (pendingHint.cells) {
+    pendingHint.cells.forEach(({r,c}) => {
       const el = boardEl.children[r*9+c];
       if (el) el.classList.add('highlight-candidate');
     });
   }
-  if (hint.eliminations) {
-    hint.eliminations.forEach(({r,c}) => {
+  if (pendingHint.cell) {
+    const el = boardEl.children[pendingHint.cell.r*9+pendingHint.cell.c];
+    if (el) el.classList.add('highlight-candidate');
+  }
+  if (pendingHint.eliminations) {
+    pendingHint.eliminations.forEach(({r,c}) => {
       const el = boardEl.children[r*9+c];
       if (el) el.classList.add('highlight-elim');
     });
@@ -273,13 +358,37 @@ function showHint() {
   showOverlay(hintOverlay);
 }
 
-function getHintPreview() {
-  const { getHint } = window._solver || {};
-  // Import dynamically to avoid circular issues — use game's board
-  return _getHint(game.board);
+function buildRevealExplanation(r, c, val, board) {
+  const candidates = getCandidates(board, r, c);
+  return `Cell (${r+1},${c+1}) must be ${val}. ` +
+    (candidates.length === 1
+      ? `It's the only number that fits — all other digits already appear in the same row, column, or box.`
+      : `After checking what's already placed in row ${r+1}, column ${c+1}, and its 3×3 box, ${val} is the only correct option.`);
 }
 
-import { getHint as _getHint } from './solver.js';
+function buildRichExplanation(hint, board) {
+  // Already has a good explanation from solver — enrich it
+  let base = hint.explanation || '';
+  switch (hint.type) {
+    case 'Naked Single':
+      return base + ` Every other digit (1–9) already appears somewhere in the same row, column, or 3×3 box, so there is no other choice.`;
+    case 'Hidden Single':
+      return base + ` Even though the cell has other candidates, ${hint.value} cannot go anywhere else in that unit — making this spot the only valid one.`;
+    case 'Naked Pair':
+      return base + ` Because those two cells are the only places these digits can go in the unit, no other cell in the unit can contain them.`;
+    case 'Hidden Pair':
+      return base + ` Since these two digits are confined to exactly two cells, all other candidates in those cells can be eliminated.`;
+    case 'Pointing Pair':
+    case 'Pointing Triple':
+      return base + ` This means that digit is "locked" into that row or column within the box, so it can be removed from the rest of the row or column outside the box.`;
+    case 'X-Wing':
+      return base + ` This forms a rectangle — no matter which pair of cells ends up with the digit, it eliminates the digit from all other cells in those columns.`;
+    case 'Y-Wing':
+      return base + ` The three cells form a chain where any value for the pivot forces a value in one of the wings, guaranteeing the elimination.`;
+    default:
+      return base;
+  }
+}
 
 function applyHintToGame(hint) {
   if (hint.value !== undefined && hint.cell) {
@@ -290,7 +399,6 @@ function applyHintToGame(hint) {
   } else if (hint.eliminations) {
     hint.eliminations.forEach(({r,c,remove}) => remove.forEach(n => game.notes[r][c].delete(n)));
   }
-  game.hintsUsed++;
   clearHintHighlights();
 }
 
@@ -300,11 +408,308 @@ function clearHintHighlights() {
   });
 }
 
+// ── Solver Page ───────────────────────────────────────────────────────────────
+function openSolverPage() {
+  appEl.classList.add('hidden');
+  solverPageEl.classList.remove('hidden');
+  // Show input panel, hide steps
+  solverInputPanel.classList.remove('hidden');
+  solverStepsPanel.classList.add('hidden');
+  stopAutoPlay();
+}
+
+function closeSolverPage() {
+  solverPageEl.classList.add('hidden');
+  appEl.classList.remove('hidden');
+  stopAutoPlay();
+}
+
+function buildSolverInputBoard() {
+  solverBoardEl.innerHTML = '';
+  for (let r=0;r<9;r++) {
+    for (let c=0;c<9;c++) {
+      const cell = document.createElement('div');
+      cell.className = 'cell';
+      cell.dataset.r = r; cell.dataset.c = c;
+      cell.addEventListener('click', () => {
+        solverSelected = {r, c};
+        renderSolverInputBoard();
+      });
+      solverBoardEl.appendChild(cell);
+    }
+  }
+  renderSolverInputBoard();
+}
+
+function renderSolverInputBoard() {
+  for (let r=0;r<9;r++) {
+    for (let c=0;c<9;c++) {
+      const cell = solverBoardEl.children[r*9+c];
+      const val = solverInputBoard[r][c];
+      cell.className = 'cell';
+      if (solverSelected && solverSelected.r===r && solverSelected.c===c) cell.classList.add('selected');
+      if (val !== 0) {
+        cell.classList.add('initial');
+        cell.textContent = val;
+      } else {
+        cell.textContent = '';
+      }
+    }
+  }
+}
+
+function clearSolverBoard() {
+  solverInputBoard = Array.from({length:9}, () => Array(9).fill(0));
+  solverSelected = null;
+  renderSolverInputBoard();
+}
+
+function loadCurrentGameIntoSolver() {
+  if (!game || !game.board) return;
+  // Load the initial clues (not the player's progress)
+  solverInputBoard = game.initial.map(r => [...r]);
+  solverSelected = null;
+  renderSolverInputBoard();
+}
+
+function startSolving() {
+  // Validate the board has at least some clues
+  const filled = solverInputBoard.flat().filter(v => v !== 0).length;
+  if (filled < 17) {
+    alert('Please enter at least 17 clues — a valid Sudoku requires a minimum of 17 given digits.');
+    return;
+  }
+
+  // Generate all steps
+  solverSteps = generateSolverSteps(solverInputBoard);
+  if (!solverSteps.length) {
+    alert('Could not find a solution. Please check the puzzle is valid.');
+    return;
+  }
+
+  solverCurrentStep = -1;
+  solverInputPanel.classList.add('hidden');
+  solverStepsPanel.classList.remove('hidden');
+
+  // Build the steps board
+  buildSolverStepsBoard(solverSteps[0].boardBefore);
+  document.getElementById('solver-step-total').textContent = solverSteps.length;
+  document.getElementById('solver-step-num').textContent = 0;
+  document.getElementById('solver-step-title').textContent = 'Ready to solve';
+  document.getElementById('solver-step-desc').textContent = `Found ${solverSteps.length} steps. Press Next to begin.`;
+  document.getElementById('solver-step-badge').textContent = 'Start';
+  document.getElementById('solver-log').innerHTML = '';
+  updateSolverNavButtons();
+}
+
+function generateSolverSteps(initialBoard) {
+  const steps = [];
+  const board = initialBoard.map(r => [...r]);
+  const initialSet = initialBoard.map(r => [...r]);
+
+  let safety = 0;
+  while (true) {
+    safety++;
+    if (safety > 500) break;
+    if (board.every(row => row.every(v => v !== 0))) break;
+
+    const hint = _getHint(board);
+    if (hint) {
+      const explanation = buildRichExplanation(hint, board);
+      const stepBoardBefore = board.map(row => [...row]);
+      steps.push({ ...hint, explanation, boardBefore: stepBoardBefore });
+      if (hint.value !== undefined && hint.cell) {
+        board[hint.cell.r][hint.cell.c] = hint.value;
+      } else if (hint.eliminations) {
+        // For elimination hints, try to advance the board via solving
+        // just continue — the board state doesn't visually change for eliminations
+      }
+    } else {
+      // Brute-force one cell via trial & error
+      const solution = solveFull(board);
+      if (!solution) break;
+      let placed = false;
+      for (let r=0;r<9 && !placed;r++) {
+        for (let c=0;c<9 && !placed;c++) {
+          if (board[r][c] === 0) {
+            const explanation = `No more logical deductions are possible at this point. By systematically testing candidates for cell (${r+1},${c+1}) and checking which value leads to a valid completed puzzle, we determine it must be ${solution[r][c]}. This "trial and error" (backtracking) is sometimes necessary for hard and expert puzzles.`;
+            steps.push({
+              type: 'Trial & Error',
+              cell: {r, c},
+              value: solution[r][c],
+              boardBefore: board.map(row=>[...row]),
+              explanation
+            });
+            board[r][c] = solution[r][c];
+            placed = true;
+          }
+        }
+      }
+      if (!placed) break;
+    }
+  }
+  return steps;
+}
+
+function buildSolverStepsBoard(board) {
+  if (!solverStepsBoardEl.children.length) {
+    solverStepsBoardEl.innerHTML = '';
+    for (let r=0;r<9;r++) {
+      for (let c=0;c<9;c++) {
+        const cell = document.createElement('div');
+        cell.className = 'cell';
+        solverStepsBoardEl.appendChild(cell);
+      }
+    }
+  }
+  for (let r=0;r<9;r++) {
+    for (let c=0;c<9;c++) {
+      const cell = solverStepsBoardEl.children[r*9+c];
+      cell.className = 'cell';
+      const val = board[r][c];
+      const isInitial = solverInputBoard[r][c] !== 0;
+      if (val !== 0) {
+        if (isInitial) cell.classList.add('initial');
+        else cell.classList.add('player');
+        cell.textContent = val;
+      } else {
+        cell.textContent = '';
+      }
+    }
+  }
+}
+
+function stepSolver(dir) {
+  stopAutoPlay();
+  const newStep = solverCurrentStep + dir;
+  if (newStep < -1 || newStep >= solverSteps.length) return;
+  solverCurrentStep = newStep;
+  renderSolverStep();
+}
+
+function renderSolverStep() {
+  const stepNum = solverCurrentStep + 1;
+  document.getElementById('solver-step-num').textContent = stepNum;
+
+  if (solverCurrentStep === -1) {
+    buildSolverStepsBoard(solverSteps[0].boardBefore);
+    document.getElementById('solver-step-title').textContent = 'Ready to solve';
+    document.getElementById('solver-step-desc').textContent = `Found ${solverSteps.length} steps. Press Next to begin.`;
+    document.getElementById('solver-step-badge').textContent = 'Start';
+    updateSolverNavButtons();
+    return;
+  }
+
+  const step = solverSteps[solverCurrentStep];
+
+  // Build board up to this step
+  const board = solverSteps[0].boardBefore.map(r=>[...r]);
+  for (let i = 0; i <= solverCurrentStep; i++) {
+    const s = solverSteps[i];
+    if (s.value !== undefined && s.cell) {
+      board[s.cell.r][s.cell.c] = s.value;
+    }
+  }
+  buildSolverStepsBoard(board);
+
+  // Highlight the step's cell
+  clearSolverHighlights();
+  if (step.cell) {
+    const el = solverStepsBoardEl.children[step.cell.r*9+step.cell.c];
+    if (el) el.classList.add('highlight-candidate');
+  }
+  if (step.cells) {
+    step.cells.forEach(({r,c}) => {
+      const el = solverStepsBoardEl.children[r*9+c];
+      if (el) el.classList.add('highlight-candidate');
+    });
+  }
+  if (step.eliminations) {
+    step.eliminations.forEach(({r,c}) => {
+      const el = solverStepsBoardEl.children[r*9+c];
+      if (el) el.classList.add('highlight-elim');
+    });
+  }
+
+  document.getElementById('solver-step-badge').textContent = step.type;
+  document.getElementById('solver-step-title').textContent =
+    step.cell
+      ? `Place ${step.value} at (${step.cell.r+1}, ${step.cell.c+1})`
+      : step.isElimination ? 'Eliminate candidates' : step.type;
+  document.getElementById('solver-step-desc').textContent = step.explanation || '';
+
+  // Add to log
+  addToSolverLog(stepNum, step);
+  updateSolverNavButtons();
+}
+
+function clearSolverHighlights() {
+  solverStepsBoardEl.querySelectorAll('.highlight-candidate,.highlight-elim').forEach(el => {
+    el.classList.remove('highlight-candidate','highlight-elim');
+  });
+}
+
+function addToSolverLog(stepNum, step) {
+  const log = document.getElementById('solver-log');
+  // Don't duplicate
+  if (log.querySelector(`[data-step="${stepNum}"]`)) return;
+  const entry = document.createElement('div');
+  entry.className = 'solver-log-entry';
+  entry.dataset.step = stepNum;
+  const cellStr = step.cell ? ` → (${step.cell.r+1},${step.cell.c+1})${step.value!==undefined?'='+step.value:''}` : '';
+  entry.innerHTML = `<span class="solver-log-num">${stepNum}</span><span class="solver-log-type">${step.type}</span><span class="solver-log-cell">${cellStr}</span>`;
+  log.appendChild(entry);
+  log.scrollTop = log.scrollHeight;
+}
+
+function updateSolverNavButtons() {
+  const prev = document.getElementById('solver-prev-step');
+  const next = document.getElementById('solver-next-step');
+  prev.disabled = solverCurrentStep <= -1;
+  next.disabled = solverCurrentStep >= solverSteps.length - 1;
+}
+
+function toggleAutoPlay() {
+  if (solverAutoTimer) {
+    stopAutoPlay();
+    document.getElementById('solver-auto-play').textContent = '▶ Auto Play';
+  } else {
+    document.getElementById('solver-auto-play').textContent = '⏸ Pause';
+    solverAutoTimer = setInterval(() => {
+      if (solverCurrentStep >= solverSteps.length - 1) {
+        stopAutoPlay();
+        document.getElementById('solver-auto-play').textContent = '▶ Auto Play';
+        return;
+      }
+      solverCurrentStep++;
+      renderSolverStep();
+    }, 1200);
+  }
+}
+
+function stopAutoPlay() {
+  if (solverAutoTimer) {
+    clearInterval(solverAutoTimer);
+    solverAutoTimer = null;
+  }
+}
+
+function resetSolverToInput() {
+  stopAutoPlay();
+  solverStepsPanel.classList.add('hidden');
+  solverInputPanel.classList.remove('hidden');
+  clearSolverHighlights();
+}
+
 // ── Overlay helpers ───────────────────────────────────────────────────────────
 function showOverlay(el) { el.classList.add('active'); }
 function hideOverlay(el) { el.classList.remove('active'); }
 
 // ── Completion ────────────────────────────────────────────────────────────────
+function showGameOver() {
+  setTimeout(() => showOverlay(gameoverOverlay), 400);
+}
+
 function showCompletion() {
   saveGame();
   localStorage.removeItem('sudoku-save');
@@ -312,7 +717,7 @@ function showCompletion() {
   cMistakes.textContent = game.mistakes;
   cHints.textContent = game.hintsUsed;
   cDiff.textContent = capitalise(game.difficulty);
-  setTimeout(()=>{
+  setTimeout(() => {
     launchConfetti();
     showOverlay(completeOverlay);
   }, 400);
@@ -369,8 +774,5 @@ function showGenerating(show) {
   }
 }
 
-// ── Auto-save on unload ───────────────────────────────────────────────────────
 window.addEventListener('beforeunload', saveGame);
-
-// ── Start ─────────────────────────────────────────────────────────────────────
 init();
