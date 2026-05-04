@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+  <title>Sudoku</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/src/style.css" />
+</head>
+<body>
+
+<!-- MENU OVERLAY -->
+<div id="menu-overlay" class="overlay active">
+  <div class="menu-card">
+    <div class="logo-area">
+      <h1 class="logo-title">Sudoku</h1>
+      <p class="logo-sub">Train your mind</p>
+    </div>
+    <div class="difficulty-grid">
+      <button class="diff-btn" data-diff="easy">
+        <span class="diff-icon">☀️</span>
+        <span class="diff-name">Easy</span>
+        <span class="diff-desc">Perfect for beginners</span>
+      </button>
+      <button class="diff-btn" data-diff="medium">
+        <span class="diff-icon">🌤️</span>
+        <span class="diff-name">Medium</span>
+        <span class="diff-desc">A gentle challenge</span>
+      </button>
+      <button class="diff-btn" data-diff="hard">
+        <span class="diff-icon">⛈️</span>
+        <span class="diff-name">Hard</span>
+        <span class="diff-desc">Advanced techniques needed</span>
+      </button>
+      <button class="diff-btn" data-diff="expert">
+        <span class="diff-icon">💀</span>
+        <span class="diff-name">Expert</span>
+        <span class="diff-desc">For true masters</span>
+      </button>
+    </div>
+    <div class="menu-footer">
+      <button id="continue-btn" class="secondary-btn" style="display:none">Continue Game</button>
+    </div>
+  </div>
+</div>
+
+<!-- COMPLETION OVERLAY -->
+<div id="complete-overlay" class="overlay">
+  <div class="complete-card">
+    <div class="trophy">🏆</div>
+    <h2>Puzzle Solved!</h2>
+    <div class="stats-grid">
+      <div class="stat"><span class="stat-val" id="c-time">--:--</span><span class="stat-lbl">Time</span></div>
+      <div class="stat"><span class="stat-val" id="c-mistakes">0</span><span class="stat-lbl">Mistakes</span></div>
+      <div class="stat"><span class="stat-val" id="c-hints">0</span><span class="stat-lbl">Hints</span></div>
+      <div class="stat"><span class="stat-val" id="c-diff">—</span><span class="stat-lbl">Difficulty</span></div>
+    </div>
+    <div class="complete-actions">
+      <button id="new-same-btn" class="primary-btn">New Puzzle</button>
+      <button id="back-menu-btn" class="secondary-btn">Change Difficulty</button>
+    </div>
+  </div>
+</div>
+
+<!-- HINT OVERLAY -->
+<div id="hint-overlay" class="overlay">
+  <div class="hint-card">
+    <div class="hint-header">
+      <span class="hint-badge">💡 Hint</span>
+      <button id="hint-close" class="icon-btn">✕</button>
+    </div>
+    <h3 id="hint-type" class="hint-type"></h3>
+    <p id="hint-explanation" class="hint-explanation"></p>
+    <button id="hint-apply" class="primary-btn">Apply This Hint</button>
+  </div>
+</div>
+
+<!-- PAUSE OVERLAY -->
+<div id="pause-overlay" class="overlay">
+  <div class="pause-card">
+    <div class="pause-icon">⏸</div>
+    <h2>Paused</h2>
+    <button id="resume-btn" class="primary-btn">Resume</button>
+  </div>
+</div>
+
+<!-- MAIN APP -->
+<div id="app">
+  <!-- HEADER -->
+  <header class="app-header">
+    <button id="menu-btn" class="icon-btn" title="Menu">☰</button>
+    <div class="header-center">
+      <span class="header-logo">Sudoku</span>
+      <span id="diff-badge" class="diff-badge easy">Easy</span>
+    </div>
+    <div class="header-right">
+      <span id="mistake-counter" class="mistake-counter">
+        <span class="mistake-x">✕</span><span id="mistakes">0</span>/3
+      </span>
+      <button id="pause-btn" class="icon-btn" title="Pause">⏸</button>
+    </div>
+  </header>
+
+  <!-- TIMER BAR -->
+  <div class="timer-bar">
+    <div class="timer-track">
+      <span id="timer-display" class="timer-display">00:00</span>
+    </div>
+  </div>
+
+  <!-- BOARD WRAPPER -->
+  <main class="board-wrapper">
+    <div id="sudoku-board" class="sudoku-board"></div>
+  </main>
+
+  <!-- TOOLBAR -->
+  <div class="toolbar">
+    <button class="tool-btn" id="btn-undo" title="Undo">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7v6h6"/><path d="M3 13a9 9 0 1 0 2.83-6.36L3 10"/></svg>
+      <span>Undo</span>
+    </button>
+    <button class="tool-btn" id="btn-erase" title="Erase">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 20H7L3 16l9-9 8 8-2 2z"/><path d="M6 14l3 3"/></svg>
+      <span>Erase</span>
+    </button>
+    <button class="tool-btn" id="btn-notes" title="Notes Mode">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+      <span>Notes</span>
+    </button>
+    <button class="tool-btn" id="btn-hint" title="Hint">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
+      <span>Hint</span>
+    </button>
+    <button class="tool-btn" id="btn-autonote" title="Auto Notes">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 9h.01M12 9h.01M15 9h.01M9 12h.01M12 12h.01M15 12h.01M9 15h.01M12 15h.01M15 15h.01"/></svg>
+      <span>Auto Note</span>
+    </button>
+  </div>
+
+  <!-- NUMBER PAD -->
+  <div class="numpad">
+    <div class="numpad-grid">
+      <button class="num-btn" data-n="1">1<span class="num-count" id="nc-1"></span></button>
+      <button class="num-btn" data-n="2">2<span class="num-count" id="nc-2"></span></button>
+      <button class="num-btn" data-n="3">3<span class="num-count" id="nc-3"></span></button>
+      <button class="num-btn" data-n="4">4<span class="num-count" id="nc-4"></span></button>
+      <button class="num-btn" data-n="5">5<span class="num-count" id="nc-5"></span></button>
+      <button class="num-btn" data-n="6">6<span class="num-count" id="nc-6"></span></button>
+      <button class="num-btn" data-n="7">7<span class="num-count" id="nc-7"></span></button>
+      <button class="num-btn" data-n="8">8<span class="num-count" id="nc-8"></span></button>
+      <button class="num-btn" data-n="9">9<span class="num-count" id="nc-9"></span></button>
+    </div>
+  </div>
+</div>
+
+<script type="module" src="/src/main.js"></script>
+</body>
+</html>
