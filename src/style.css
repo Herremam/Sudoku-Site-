@@ -463,3 +463,236 @@ body::before {
   animation: confetti-fall linear forwards;
   pointer-events: none; z-index: 150;
 }
+
+/* ── Hint badge & remaining note ───────────────────────────────────────────── */
+.hint-count-badge {
+  position: absolute;
+  top: 2px; right: 4px;
+  background: var(--accent);
+  color: #fff;
+  font-size: .55rem;
+  font-weight: 700;
+  border-radius: 8px;
+  padding: 1px 5px;
+  font-family: 'DM Mono', monospace;
+  pointer-events: none;
+}
+.hint-count-badge.depleted {
+  background: var(--text-dim);
+}
+.hint-remaining-note {
+  font-size: .78rem;
+  color: var(--text-muted);
+  margin-bottom: 16px;
+  padding: 6px 10px;
+  background: var(--surface2);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+}
+.hint-remaining-note.depleted {
+  color: var(--red);
+  border-color: #f8717140;
+  background: #f8717110;
+}
+
+/* ── Solver link button in menu ─────────────────────────────────────────────── */
+.solver-link-btn {
+  display: block;
+  width: 100%;
+  margin-top: 10px;
+  background: transparent;
+  border: 1.5px solid var(--border);
+  color: var(--text-muted);
+  border-radius: var(--radius-sm);
+  padding: 10px 16px;
+  font-size: .85rem;
+  font-family: 'DM Sans', sans-serif;
+  cursor: pointer;
+  transition: all .2s;
+}
+.solver-link-btn:hover {
+  border-color: var(--accent2);
+  color: var(--accent2);
+}
+
+/* ── Solver Page ─────────────────────────────────────────────────────────────── */
+.hidden { display: none !important; }
+
+.solver-page {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-height: 100vh;
+  padding-bottom: 32px;
+  position: relative; z-index: 1;
+}
+
+.solver-header {
+  width: 100%; max-width: 680px;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 16px;
+}
+.solver-header-center {
+  text-align: center;
+}
+.solver-back {
+  font-size: .9rem;
+  padding: 8px 12px;
+}
+
+.solver-layout {
+  width: 100%; max-width: 680px;
+  display: flex; flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  padding: 0 16px;
+}
+
+.solver-instructions {
+  text-align: center;
+  color: var(--text-muted);
+  font-size: .85rem;
+  margin-bottom: 12px;
+}
+
+.solver-board-wrap,
+.solver-steps-board-wrap {
+  display: flex;
+  justify-content: center;
+}
+
+/* Solver input board — same size as game board but with brighter selected */
+.solver-board-input {
+  cursor: pointer;
+}
+
+.solver-numpad {
+  margin: 12px 0;
+}
+.solver-numpad-grid {
+  display: flex; gap: 6px; flex-wrap: wrap; justify-content: center;
+}
+.solver-num-btn {
+  width: 44px; height: 44px;
+  background: var(--surface);
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: 1.1rem;
+  font-family: 'DM Serif Display', serif;
+  cursor: pointer;
+  transition: all .15s;
+}
+.solver-num-btn:hover {
+  background: var(--cell-selected);
+  border-color: var(--accent);
+  color: #fff;
+}
+.solver-num-btn[data-n="0"] {
+  color: var(--red);
+  font-size: .9rem;
+}
+
+.solver-actions {
+  display: flex; flex-direction: column; gap: 10px;
+}
+
+/* Steps panel */
+.solver-controls {
+  display: flex; align-items: center; justify-content: space-between;
+  width: 100%; gap: 12px;
+  margin: 12px 0 8px;
+}
+.solver-nav-btn {
+  flex: 0 0 auto;
+  padding: 8px 18px;
+  font-size: .85rem;
+}
+.solver-step-counter {
+  font-size: .8rem;
+  color: var(--text-muted);
+  font-family: 'DM Mono', monospace;
+  flex: 1; text-align: center;
+}
+
+.solver-step-card {
+  width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+  margin-bottom: 14px;
+}
+.solver-step-badge {
+  display: inline-block;
+  background: var(--accent-glow);
+  color: var(--accent);
+  border: 1px solid #6c8ef740;
+  border-radius: 20px;
+  padding: 3px 12px;
+  font-size: .75rem; font-weight: 700;
+  margin-bottom: 10px;
+}
+.solver-step-title {
+  font-family: 'DM Serif Display', serif;
+  font-size: 1.2rem;
+  margin-bottom: 8px;
+  color: var(--text);
+}
+.solver-step-desc {
+  font-size: .88rem;
+  color: var(--text-muted);
+  line-height: 1.7;
+}
+
+.solver-step-actions {
+  display: flex; gap: 10px; width: 100%;
+}
+.solver-step-actions .primary-btn,
+.solver-step-actions .secondary-btn {
+  flex: 1;
+}
+
+.solver-log {
+  width: 100%;
+  max-height: 180px;
+  overflow-y: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px;
+  margin-top: 4px;
+}
+.solver-log-entry {
+  display: flex; align-items: center; gap: 8px;
+  padding: 5px 4px;
+  border-bottom: 1px solid var(--border);
+  font-size: .78rem;
+}
+.solver-log-entry:last-child { border-bottom: none; }
+.solver-log-num {
+  color: var(--text-dim);
+  font-family: 'DM Mono', monospace;
+  min-width: 24px;
+}
+.solver-log-type {
+  color: var(--accent2);
+  font-weight: 600;
+  flex: 1;
+}
+.solver-log-cell {
+  color: var(--text-muted);
+  font-family: 'DM Mono', monospace;
+}
+
+/* scrollbar for log */
+.solver-log::-webkit-scrollbar { width: 4px; }
+.solver-log::-webkit-scrollbar-track { background: transparent; }
+.solver-log::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+/* ── Game Over ───────────────────────────────────────────────────────────────── */
+.gameover-sub {
+  color: var(--text-muted);
+  font-size: .9rem;
+  margin-bottom: 24px;
+}
